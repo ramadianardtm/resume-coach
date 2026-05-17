@@ -135,8 +135,8 @@ const CSRF         = document.querySelector('meta[name="csrf-token"]').content;
 // Replace MONTHLY_PLAN_ID below with the plan ID you create in
 // PayPal Dashboard → Subscriptions → Plans → Create Plan ($4/mo)
 const PLAN_IDS = {
-    annual:  'P-6MY012515D384684UNIEMN6Y',   // your existing annual plan
-    monthly: 'P-REPLACE_WITH_YOUR_MONTHLY_PLAN_ID'
+    annual:  'P-4S005922JB426663ANIEZ6TY',   // your existing annual plan
+    monthly: 'P-6MY012515D384684UNIEMN6Y'
 };
 
 // ── Plan switcher ──────────────────────────────────────────────
