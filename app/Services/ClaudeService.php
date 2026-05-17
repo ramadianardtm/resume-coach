@@ -8,7 +8,7 @@ use Illuminate\Support\Facades\Log;
 class ClaudeService
 {
     private string $apiKey;
-    private string $model    = 'claude-sonnet-4-20250514';
+    private string $model = 'claude-sonnet-4-5';
     private string $apiUrl   = 'https://api.anthropic.com/v1/messages';
     private int    $maxTokens = 1500;
 

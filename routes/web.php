@@ -7,15 +7,15 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ResumeController;
 use Illuminate\Support\Facades\Route;
 
-// ── Public landing page ────────────────────────────────────────
+// ── Public landing ─────────────────────────────────────────────
 Route::get('/', fn () => view('landing'))->name('home');
 
-// ── Auth ───────────────────────────────────────────────────────
+// ── Auth (guests only) ─────────────────────────────────────────
 Route::middleware('guest')->group(function () {
-    Route::get('/register', [AuthController::class, 'showRegister'])->name('register');
+    Route::get('/register',  [AuthController::class, 'showRegister'])->name('register');
     Route::post('/register', [AuthController::class, 'register']);
-    Route::get('/login', [AuthController::class, 'showLogin'])->name('login');
-    Route::post('/login', [AuthController::class, 'login']);
+    Route::get('/login',     [AuthController::class, 'showLogin'])->name('login');
+    Route::post('/login',    [AuthController::class, 'login']);
 });
 
 Route::post('/logout', [AuthController::class, 'logout'])
@@ -28,34 +28,40 @@ Route::middleware('auth')->group(function () {
     // Dashboard
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
-    // Resumes
+    // ── Resumes ────────────────────────────────────────────────
+    // Static routes BEFORE wildcard /{resumeId} to prevent collisions
     Route::prefix('resume')->name('resume.')->group(function () {
-        Route::get('/',                      [ResumeController::class, 'index'])->name('index');
-        Route::post('/create',               [ResumeController::class, 'create'])->name('create');
-        Route::get('/{resumeId}/builder',    [ResumeController::class, 'builder'])->name('builder');
-        Route::get('/{resumeId}',            [ResumeController::class, 'show'])->name('show');
-        Route::patch('/{resumeId}',          [ResumeController::class, 'update'])->name('update');
-        Route::delete('/{resumeId}',         [ResumeController::class, 'destroy'])->name('destroy');
+        Route::get('/',                   [ResumeController::class, 'index'])->name('index');
+        Route::post('/create',            [ResumeController::class, 'create'])->name('create');
+        // Wildcard routes — constrained to numbers only
+        Route::get('/{resumeId}/builder', [ResumeController::class, 'builder'])->name('builder')->whereNumber('resumeId');
+        Route::get('/{resumeId}',         [ResumeController::class, 'show'])->name('show')->whereNumber('resumeId');
+        Route::patch('/{resumeId}',       [ResumeController::class, 'update'])->name('update')->whereNumber('resumeId');
+        Route::delete('/{resumeId}',      [ResumeController::class, 'destroy'])->name('destroy')->whereNumber('resumeId');
     });
 
-    // Cover letters
+    // ── Cover Letters ──────────────────────────────────────────
+    // GET /cover/create must come BEFORE /{coverId} wildcard
     Route::prefix('cover')->name('cover.')->group(function () {
-        Route::get('/',                      [CoverLetterController::class, 'index'])->name('index');
-        Route::post('/create',               [CoverLetterController::class, 'create'])->name('create');
-        Route::get('/{coverId}/builder',     [CoverLetterController::class, 'builder'])->name('builder');
-        Route::get('/{coverId}',             [CoverLetterController::class, 'show'])->name('show');
-        Route::delete('/{coverId}',          [CoverLetterController::class, 'destroy'])->name('destroy');
+        Route::get('/',                   [CoverLetterController::class, 'index'])->name('index');
+        // GET create — redirects to POST create after optionally reading resume_id query param
+        Route::get('/create',             [CoverLetterController::class, 'createRedirect'])->name('create.get');
+        Route::post('/create',            [CoverLetterController::class, 'create'])->name('create');
+        // Wildcard routes — numbers only, so "create" string never matches
+        Route::get('/{coverId}/builder',  [CoverLetterController::class, 'builder'])->name('builder')->whereNumber('coverId');
+        Route::get('/{coverId}',          [CoverLetterController::class, 'show'])->name('show')->whereNumber('coverId');
+        Route::delete('/{coverId}',       [CoverLetterController::class, 'destroy'])->name('destroy')->whereNumber('coverId');
     });
 
-    // Billing
+    // ── Billing ────────────────────────────────────────────────
     Route::prefix('billing')->name('billing.')->group(function () {
-        Route::get('/upgrade',           [BillingController::class, 'upgrade'])->name('upgrade');
-        Route::post('/checkout',         [BillingController::class, 'checkout'])->name('checkout');
-        Route::get('/success',           [BillingController::class, 'success'])->name('success');
+        Route::get('/upgrade',          [BillingController::class, 'upgrade'])->name('upgrade');
+        Route::get('/success',          [BillingController::class, 'success'])->name('success');
+        Route::post('/paypal/activate', [BillingController::class, 'paypalActivate'])->name('paypal.activate');
     });
 });
 
-// ── Stripe webhook (no CSRF) ───────────────────────────────────
-Route::post('/stripe/webhook', [BillingController::class, 'webhook'])
-    ->name('stripe.webhook')
-    ->withoutMiddleware(['web', \App\Http\Middleware\VerifyCsrfToken::class]);
+// ── PayPal Webhook (no CSRF, no auth) ─────────────────────────
+Route::post('/paypal/webhook', [BillingController::class, 'paypalWebhook'])
+    ->name('paypal.webhook')
+    ->withoutMiddleware([\App\Http\Middleware\VerifyCsrfToken::class]);

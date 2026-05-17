@@ -4,24 +4,16 @@ namespace App\Http\Controllers;
 
 use App\Models\Subscription;
 use App\Models\User;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller as BaseController;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Stripe\Exception\SignatureVerificationException;
-use Stripe\StripeClient;
-use Stripe\Webhook;
 
 class BillingController extends BaseController
 {
-    private StripeClient $stripe;
-
-    public function __construct()
-    {
-        // StripeClient is the modern, IDE-friendly way — no static Stripe::setApiKey needed
-        $this->stripe = new StripeClient((string) config('services.stripe.secret'));
-    }
-
     // ── Upgrade page ───────────────────────────────────────────
 
     public function upgrade(): \Illuminate\View\View
@@ -31,131 +23,121 @@ class BillingController extends BaseController
         return view('billing.upgrade', compact('user'));
     }
 
-    // ── Create Stripe Checkout Session ────────────────────────
+    // ── PayPal: activate subscription after JS onApprove ───────
+    //
+    // After the user completes PayPal's subscription flow, the JS
+    // calls this endpoint with data.subscriptionID. We verify it
+    // with PayPal's REST API, then mark the user as Pro.
 
-    public function checkout(Request $request): \Illuminate\Http\RedirectResponse
+    public function paypalActivate(Request $request): JsonResponse
     {
         $request->validate([
-            'plan' => ['required', 'in:pro_monthly,pro_annual'],
+            'subscription_id' => ['required', 'string'],
+            'plan'            => ['required', 'in:monthly,annual'],
         ]);
 
         /** @var User $user */
-        $user    = Auth::user();
-        $priceId = $request->plan === 'pro_annual'
-            ? (string) config('services.stripe.price_annual')
-            : (string) config('services.stripe.price_monthly');
+        $user           = Auth::user();
+        $subscriptionId = $request->string('subscription_id')->toString();
+        $plan           = $request->string('plan')->toString();
 
-        $checkout = $this->stripe->checkout->sessions->create([
-            'customer_email'       => $user->email,
-            'payment_method_types' => ['card'],
-            'line_items'           => [['price' => $priceId, 'quantity' => 1]],
-            'mode'                 => 'subscription',
-            'success_url'          => route('billing.success') . '?session_id={CHECKOUT_SESSION_ID}',
-            'cancel_url'           => route('billing.upgrade'),
-            'metadata'             => ['user_id' => (string) $user->id, 'plan' => $request->plan],
-        ]);
+        // Verify with PayPal
+        $verified = $this->verifyPayPalSubscription($subscriptionId);
 
-        return redirect((string) $checkout->url);
-    }
-
-    // ── Stripe Webhook ─────────────────────────────────────────
-
-    public function webhook(Request $request): \Illuminate\Http\JsonResponse
-    {
-        $payload   = $request->getContent();
-        $sigHeader = $request->header('Stripe-Signature', '');
-        $secret    = (string) config('services.stripe.webhook_secret');
-
-        try {
-            $event = Webhook::constructEvent($payload, $sigHeader, $secret);
-        } catch (SignatureVerificationException $e) {
-            Log::warning('Stripe webhook signature mismatch');
-            return response()->json(['error' => 'Invalid signature'], 400);
+        if (! $verified) {
+            Log::warning('PayPal subscription verification failed', [
+                'user_id' => $user->id,
+                'sub_id'  => $subscriptionId,
+            ]);
+            return response()->json(['success' => false, 'message' => 'Verification failed. Please contact support.'], 400);
         }
 
-        // Use if/else instead of match() so IDEs don't flag exhaustiveness
-        if ($event->type === 'checkout.session.completed') {
-            $this->handleCheckoutComplete($event->data->object);
-        } elseif ($event->type === 'customer.subscription.updated') {
-            $this->handleSubscriptionUpdated($event->data->object);
-        } elseif ($event->type === 'customer.subscription.deleted') {
-            $this->handleSubscriptionDeleted($event->data->object);
-        } elseif ($event->type === 'invoice.payment_failed') {
-            $this->handlePaymentFailed($event->data->object);
+        // Save subscription record
+        Subscription::updateOrCreate(
+            ['stripe_subscription_id' => $subscriptionId],
+            [
+                'user_id'              => $user->id,
+                'stripe_price_id'      => $plan,
+                'plan'                 => $plan,
+                'status'               => 'active',
+                'current_period_start' => now(),
+                'current_period_end'   => $plan === 'annual' ? now()->addYear() : now()->addMonth(),
+            ]
+        );
+
+        // Activate Pro
+        $user->update([
+            'plan'                   => 'pro',
+            'stripe_subscription_id' => $subscriptionId,
+            'subscription_ends_at'   => $plan === 'annual' ? now()->addYear() : now()->addMonth(),
+        ]);
+
+        Log::info('PayPal Pro activated', ['user_id' => $user->id, 'plan' => $plan]);
+
+        return response()->json(['success' => true]);
+    }
+
+    // ── Success page ───────────────────────────────────────────
+
+    public function success(): RedirectResponse
+    {
+        return redirect()->route('dashboard')
+            ->with('success', '🎉 Welcome to Pro! You now have unlimited resume and cover letter generations.');
+    }
+
+    // ── PayPal Webhook ─────────────────────────────────────────
+    // Set up in PayPal Dashboard → Webhooks → your domain/paypal/webhook
+    // Events: BILLING.SUBSCRIPTION.CANCELLED, BILLING.SUBSCRIPTION.EXPIRED
+
+    public function paypalWebhook(Request $request): JsonResponse
+    {
+        $eventType = $request->input('event_type', '');
+
+        Log::info('PayPal webhook', ['event' => $eventType]);
+
+        if (in_array($eventType, ['BILLING.SUBSCRIPTION.CANCELLED', 'BILLING.SUBSCRIPTION.EXPIRED'], true)) {
+            $subId = $request->input('resource.id');
+            if ($subId) {
+                $sub = Subscription::where('stripe_subscription_id', $subId)->first();
+                if ($sub instanceof Subscription) {
+                    $sub->update(['status' => 'canceled', 'canceled_at' => now()]);
+                    $owner = $sub->user;
+                    if ($owner instanceof User) {
+                        $owner->update(['plan' => 'free', 'credits' => 0]);
+                    }
+                }
+            }
         }
 
         return response()->json(['received' => true]);
     }
 
-    // ── Success redirect ───────────────────────────────────────
+    // ── Private: get PayPal access token then verify sub ───────
 
-    public function success(): \Illuminate\Http\RedirectResponse
+    private function verifyPayPalSubscription(string $subscriptionId): bool
     {
-        return redirect()->route('dashboard')
-            ->with('success', '🎉 Welcome to Pro! Enjoy unlimited resume generations.');
-    }
+        try {
+            $tokenRes = Http::asForm()->withBasicAuth(
+                (string) config('services.paypal.client_id'),
+                (string) config('services.paypal.secret')
+            )->post(config('services.paypal.base_url') . '/v1/oauth2/token', [
+                'grant_type' => 'client_credentials',
+            ]);
 
-    // ── Webhook handlers ───────────────────────────────────────
+            if ($tokenRes->failed()) return false;
 
-    private function handleCheckoutComplete(object $session): void
-    {
-        $userId = $session->metadata->user_id ?? null;
-        $plan   = (string) ($session->metadata->plan ?? 'pro_monthly');
+            $token = $tokenRes->json('access_token');
 
-        if (! $userId) {
-            return;
+            $subRes = Http::withToken($token)
+                ->get(config('services.paypal.base_url') . '/v1/billing/subscriptions/' . $subscriptionId);
+
+            if ($subRes->failed()) return false;
+
+            return in_array($subRes->json('status'), ['ACTIVE', 'APPROVAL_PENDING'], true);
+
+        } catch (\Exception $e) {
+            Log::error('PayPal verify exception', ['msg' => $e->getMessage()]);
+            return false;
         }
-
-        $user = User::find((int) $userId);
-        if (! $user instanceof User) {
-            return;
-        }
-
-        $stripeSubscription = $this->stripe->subscriptions->retrieve((string) $session->subscription);
-
-        Subscription::updateOrCreate(
-            ['stripe_subscription_id' => $stripeSubscription->id],
-            [
-                'user_id'              => $user->id,
-                'stripe_price_id'      => $stripeSubscription->items->data[0]->price->id,
-                'plan'                 => $plan,
-                'status'               => $stripeSubscription->status,
-                'current_period_start' => now()->createFromTimestamp($stripeSubscription->current_period_start),
-                'current_period_end'   => now()->createFromTimestamp($stripeSubscription->current_period_end),
-            ]
-        );
-
-        $user->update([
-            'plan'                   => 'pro',
-            'stripe_customer_id'     => (string) $session->customer,
-            'stripe_subscription_id' => (string) $stripeSubscription->id,
-            'subscription_ends_at'   => now()->createFromTimestamp($stripeSubscription->current_period_end),
-        ]);
-    }
-
-    private function handleSubscriptionUpdated(object $subscription): void
-    {
-        Subscription::where('stripe_subscription_id', $subscription->id)
-            ->update(['status' => $subscription->status]);
-    }
-
-    private function handleSubscriptionDeleted(object $subscription): void
-    {
-        $sub = Subscription::where('stripe_subscription_id', $subscription->id)->first();
-        if (! $sub instanceof Subscription) {
-            return;
-        }
-
-        $sub->update(['status' => 'canceled', 'canceled_at' => now()]);
-
-        $owner = $sub->user;
-        if ($owner instanceof User) {
-            $owner->update(['plan' => 'free', 'credits' => 0]);
-        }
-    }
-
-    private function handlePaymentFailed(object $invoice): void
-    {
-        Log::warning('Stripe payment failed', ['customer' => $invoice->customer ?? 'unknown']);
     }
 }

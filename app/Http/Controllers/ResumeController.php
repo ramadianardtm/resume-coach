@@ -8,6 +8,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Routing\Controller as BaseController;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Contracts\View\View;
 
 class ResumeController extends BaseController
 {
@@ -47,36 +48,41 @@ class ResumeController extends BaseController
             'messages'  => [],
             'status'    => 'active',
         ]);
-
-        return redirect()->route('resume.builder', ['resume' => $resume->id, 'session' => $session->id]);
+        return redirect()->route('resume.builder', ['resumeId' => $resume->id]);
     }
 
     // ── Builder view ───────────────────────────────────────────
 
-    public function builder(int $resumeId, Request $request): \Illuminate\Http\RedirectResponse|\Illuminate\View\View
+    public function builder(int $resumeId)
     {
-        /** @var User $user */
-        $user   = Auth::user();
-        $resume = Resume::where('id', $resumeId)->where('user_id', $user->id)->first();
-
-        if (! $resume instanceof Resume) {
-            return redirect()->route('resume.index')->with('error', 'Resume not found.');
-        }
-
-        $session = ChatSession::where('id', (int) $request->query('session'))
-            ->where('user_id', $user->id)
+        $resume  = Resume::where('id', $resumeId)->where('user_id', auth()->id())->firstOrFail();
+        $session = ChatSession::where('resume_id', $resumeId)
+            ->where('user_id', auth()->id())
+            ->latest()
             ->first();
 
-        if (! $session instanceof ChatSession) {
-            return redirect()->route('resume.index')->with('error', 'Session not found.');
+        // Auto-create session if missing
+        if (! $session) {
+            $session = ChatSession::create([
+                'user_id'   => auth()->id(),
+                'resume_id' => $resume->id,
+                'mode'      => 'resume',
+                'messages'  => [],
+                'status'    => 'active',
+            ]);
         }
 
-        return view('resume.builder', compact('resume', 'session'));
+        return view('resume.builder', [
+            'resume'     => $resume,
+            'session'    => $session,
+            'resumeData' => !empty($resume->resume_data) ? $resume->resume_data : null,
+            'coverData'  => null,
+        ]);
     }
 
     // ── View / Preview ─────────────────────────────────────────
 
-    public function show(int $resumeId): \Illuminate\Http\RedirectResponse|\Illuminate\View\View
+    public function show(string $resumeId): \Illuminate\Http\RedirectResponse|\Illuminate\View\View
     {
         /** @var User $user */
         $user   = Auth::user();
@@ -91,7 +97,7 @@ class ResumeController extends BaseController
 
     // ── Update title ───────────────────────────────────────────
 
-    public function update(Request $request, int $resumeId): \Illuminate\Http\RedirectResponse
+    public function update(Request $request, string $resumeId): \Illuminate\Http\RedirectResponse
     {
         /** @var User $user */
         $user   = Auth::user();
@@ -109,7 +115,7 @@ class ResumeController extends BaseController
 
     // ── Delete ─────────────────────────────────────────────────
 
-    public function destroy(int $resumeId): \Illuminate\Http\RedirectResponse
+    public function destroy(string $resumeId): \Illuminate\Http\RedirectResponse
     {
         /** @var User $user */
         $user   = Auth::user();
@@ -120,6 +126,6 @@ class ResumeController extends BaseController
         }
 
         $resume->delete();
-        return redirect()->route('resume.index')->with('success', 'Resume deleted.');
+        return redirect()->route('dashboard')->with('success', 'Resume deleted.');
     }
 }

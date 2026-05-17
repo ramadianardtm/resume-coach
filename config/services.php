@@ -43,4 +43,9 @@ return [
     'claude' => [
         'api_key' => env('CLAUDE_API_KEY'),
     ],
+    'paypal' => [
+        'client_id' => env('PAYPAL_CLIENT_ID'),
+        'secret'    => env('PAYPAL_SECRET'),
+        'base_url'  => env('PAYPAL_BASE_URL', 'https://api-m.sandbox.paypal.com'),
+    ],
 ];

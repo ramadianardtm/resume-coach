@@ -9,8 +9,9 @@ class DashboardController extends Controller
 {
     public function index()
     {
+        /** @var \App\Models\User $user */
         $user    = Auth::user();
-        $resumes = $user->resumes()->with('coverLetters')->get();
+        $resumes = $user->resumes()->with(['coverLetters', 'latestSession'])->get();
         $covers  = $user->coverLetters()->get();
 
         return view('dashboard.index', compact('user', 'resumes', 'covers'));

@@ -8,7 +8,7 @@ use Illuminate\Database\Eloquent\Model;
 class Resume extends Model
 {
     use HasFactory;
- 
+
     protected $fillable = [
         'user_id',
         'title',
@@ -18,35 +18,40 @@ class Resume extends Model
         'raw_content',
         'status',
     ];
- 
+
     protected $casts = [
         'resume_data' => 'array',
     ];
- 
+
     // ── Relationships ──────────────────────────────────────────
- 
+
     public function user()
     {
         return $this->belongsTo(User::class);
     }
- 
+
     public function coverLetters()
     {
         return $this->hasMany(CoverLetter::class);
     }
- 
+
     public function chatSessions()
     {
         return $this->hasMany(ChatSession::class);
     }
- 
+
+    public function latestSession()
+    {
+        return $this->hasOne(ChatSession::class)->latestOfMany();
+    }
+
     // ── Accessors ──────────────────────────────────────────────
- 
+
     public function getApplicantNameAttribute(): string
     {
         return $this->resume_data['name'] ?? $this->user->name;
     }
- 
+
     public function isComplete(): bool
     {
         return $this->status === 'complete';
