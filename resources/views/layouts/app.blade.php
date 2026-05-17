@@ -11,7 +11,7 @@
     <!-- Open Graph (for sharing) -->
     <meta property="og:title" content="ResumeCoach AI — Build Your Resume with AI">
     <meta property="og:description" content="AI-powered resume builder that interviews you like a real career coach.">
-    <meta property="og:url" content="https://yoursite.com">
+    <meta property="og:url" content="https://resumecoach.online">
     <meta property="og:type" content="website">
     <title>@yield('title', 'ResumeCoach AI')</title>
     <link rel="icon" type="image/png" href="{{ asset('resume-coach-logo.png') }}">

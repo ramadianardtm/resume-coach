@@ -3,4 +3,4 @@ Allow: /
 Disallow: /dashboard
 Disallow: /resume
 Disallow: /cover
-Sitemap: https://yoursite.com/sitemap.xml
+Sitemap: https://resumecoach.online/sitemap.xml
