@@ -11,36 +11,6 @@
     <meta name="keywords"
         content="AI resume builder, cover letter generator, ATS resume, free resume builder, AI career coach">
     <link rel="canonical" href="https://resumecoach.online/">
-
-    {{-- Open Graph (WhatsApp, LinkedIn, Facebook previews) --}}
-    <meta property="og:title" content="ResumeCoach AI — Build Your Resume Through a Conversation">
-    <meta property="og:description"
-        content="AI interviews you like a career coach, then builds an ATS-optimised resume. 3 free generations, no credit card.">
-    <meta property="og:url" content="https://resumecoach.online/">
-    <meta property="og:type" content="website">
-
-    {{-- Twitter/X card --}}
-    <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="ResumeCoach AI — Your Resume, Built Through Conversation">
-    <meta name="twitter:description"
-        content="3 free AI-generated resumes. No forms, no dark-pattern billing. Just a coaching conversation.">
-
-    {{-- Structured data — helps Google show rich results --}}
-    <script type="application/ld+json">
-            {
-            "@context": "https://schema.org",
-            "@type": "SoftwareApplication",
-            "name": "ResumeCoach AI",
-            "url": "https://resumecoach.online",
-            "description": "AI resume builder that interviews you like a career coach to build ATS-optimised resumes and cover letters.",
-            "applicationCategory": "BusinessApplication",
-            "operatingSystem": "Web",
-            "offers": [
-                { "@type": "Offer", "price": "0", "priceCurrency": "USD", "name": "Free" },
-                { "@type": "Offer", "price": "4", "priceCurrency": "USD", "name": "Pro Monthly" }
-            ]
-            }
-    </script>
     <link rel="icon" type="image/png" href="{{ asset('resume-coach-logo.png') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link
