@@ -3,4 +3,5 @@ Allow: /
 Disallow: /dashboard
 Disallow: /resume
 Disallow: /cover
+Disallow: /billing
 Sitemap: https://resumecoach.online/sitemap.xml
